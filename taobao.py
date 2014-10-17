@@ -18,11 +18,11 @@ query = driver.find_element_by_css_selector("#q")
 query.send_keys(keyWord + Keys.RETURN)
 
 def isfloat(value):
-  try:
-    float(value)
-    return True
-  except ValueError:
-    return False
+	try:
+    	float(value)
+    	return True
+  	except ValueError:
+    	return False
 
 itemsFound = []
 itemsToBrowse = []
