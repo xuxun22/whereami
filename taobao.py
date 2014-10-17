@@ -3,10 +3,10 @@
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 
-keyWord = u'取暖器'
+keyWord = u'取暖�?
 #itemPrice = u'429.00'
 itemPrice = u'298.00'
-#shopName = u'艾美特'
+#shopName = u'艾美�?
 shopName = u'星月'
 maxPages = 5
 
@@ -42,7 +42,7 @@ while(count < maxPages):
 	driver.execute_script(js_scroll)
 	nextBtn = None
 	for btn in driver.find_elements_by_css_selector('div.page-wrap a'):
-		if btn.get_attribute('title') == u'下一页':
+		if btn.get_attribute('title') == u'下一�?:
 			print "Found nextBtn: %s" % btn.get_attribute('href')
 			nextBtn = btn
 	if not nextBtn:
