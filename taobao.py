@@ -1,81 +1,130 @@
 # -*- coding:utf-8 -*-
 
+import tornado.ioloop
+import tornado.web
+import os.path
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from time import sleep
 
-keyWord = u'取暖�?
-#itemPrice = u'429.00'
-itemPrice = u'298.00'
-#shopName = u'艾美�?
-shopName = u'星月'
+PreferredBrowser = "PhantomJS"
 maxPages = 5
+TaskQueue = []
 
-driver = webdriver.Ie()
-driver.maximize_window()
-driver.get("http://www.taobao.com")
+class BrowserTask(object):
+	"""Automated task within Browser"""
 
-query = driver.find_element_by_css_selector("#q")
-query.send_keys(keyWord + Keys.RETURN)
+	taskStatus = {
+		1: u'信息填充,等待扫描',
+		2: u'扫描完成，等待目标确认'，
+		3：u'目标确认，等待浏览'，
+		4：u'浏览完成，等待付款(已结束)',
+		5: u'任务取消'
+	}
+	def __init__(self, keyword, shopname, browser = None, login = None, password = None, **kwargs):
+		self.scan_info = {}
+		self.scan_info['keyword'] = keyword
+		self.scan_info['shopname'] = shopname
+		for k,v = kwargs.item():
+			self.scan_info[k] = v
 
-def isfloat(value):
-	try:
-		float(value)
-		return True
-	except ValueError:
-		return False
+		if not browser:
+			self.browser = PreferredBrowser
 
-itemsFound = []
-itemsToBrowse = []
-count = 1
-while(count < maxPages):
-	js_scroll = '''
-		document.body.scrollTop=0;
-		//alert(document.body.clientHeight);
-		count = document.body.scrollHeight/ 100;
-		for (var i=0; i <= count+1; i++)
-		{
-			document.body.scrollTop = 100 * i
-			//sleep(1000)
-		}
-		//document.body.scrollTop=0
-'''
-	driver.execute_script(js_scroll)
-	nextBtn = None
-	for btn in driver.find_elements_by_css_selector('div.page-wrap a'):
-		if btn.get_attribute('title') == u'下一�?:
-			print "Found nextBtn: %s" % btn.get_attribute('href')
-			nextBtn = btn
-	if not nextBtn:
-		print "Didn't find nextBtn!!!"
-		break	
+		self.login = { "username": login, "password": password }
+		self.driver = None #lazy init
+		self.isLogged = False #lazy init
+		self.status = 1
 
-	page = driver.find_element_by_css_selector("span.page-cur").text
-	#import pdb;pdb.set_trace()
-	if int(page) != count:
-		print "Next page didn't happen,trying again!!!"
-		nextBtn.click()
+	def login(self):
+		if not self.driver:
+			self.driver = getattr(webdriver,self.browser)()
+			self.driver.maximize_window()
+			self.driver.get("http://www.taobao.com")
+			# just make sure all javascript init work has completed
+			self.driver.execute_script('window.scrollTo(0,document.body.scrollHight)')
 
-	for itemElement in driver.find_elements_by_css_selector("div.tb-content div.item"):
-		price = itemElement.find_element_by_css_selector("div.price strong").text
-		shop_name = itemElement.find_element_by_css_selector("div.seller a").text
-		print "price: %s, shop_name: %s" % (price,shop_name)
+		if not self.isLogged:
 
-		if price == itemPrice and shop_name.find(shopName) >= 0:
-			itemsFound.append(itemElement)
-		else:
-			itemsToBrowse.append(itemElement)
-	
-	count = count + 1
-	print "Trying next page : %d" % count
-	nextBtn.click()
+			if self.login['username'] and self.login['password']:
+				login = self.driver.find_element_by_css_selector('a.h')
+				login.click()
+				username = self.driver.find_element_by_css_selector('input[type="text"]')
+				username.send_keys(self.login['username'])
+				safeLogin = self.driver.find_element_by_css_selector('input[type="checkbox"]')
+				import pdb;pdb.set_trace()
+				if safeLogin.get_attribute('checked'):
+					safeLogin.click()
 
-if len(itemsFound) == 1:
-	currentItem = itemsFound[0].find_element_by_css_selector(".summary a")
-	print "itemFound: %s" % currentItem.get_attribute('href')
-	currentItem.click()
-else:
-	print "I found %d matching items in total" % len(itemsFound)
-	for item in itemsFound:
-		currentItem = itemsFound[0].find_element_by_css_selector(".summary a")
-		print "itemFound: %s" % currentItem.get_attribute('href')
+				password = self.driver.find_element_by_css_selector('input[type="password"]')
+				password.send_keys(self.login['password'])
 
+				submit = driver.find_element_by_css_selector('button[type="submit"]')
+				submit.click()
+				driver.find_element_by_css_selector('li.tmsg') #confirm login
+
+		self.isLogged = True
+
+	def scan(self):
+		if not self.isLogged:
+			self.login()
+
+		current_url = self.driver.current_url
+		query = driver.find_element_by_css_selector("#q")
+		query.send_keys(self.scan_info['keyword'] + Keys.RETURN)
+
+		while(True):
+			if self.driver.current_url == current_url:
+				sleep(1)
+			else:
+				break
+
+		self.status = 2
+
+	def identify(self,id):
+		self.status = 3
+
+	def browse(self):
+		self.status = 4
+
+	def cancel(self):
+		self.status = 5
+
+class MainHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.render('index.html')
+
+
+class TaskHandler(tornado.web.RequestHandler):
+    def get(self):
+    	''' get task infromation'''
+
+    def post(self):
+    	''' cancel a task '''
+
+
+class MainHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.render('index.html')
+
+
+class MainHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.render('index.html')
+
+application = tornado.web.Application(
+	handlers = [
+    	(r"/", MainHandler),
+    	(r"/tasks/",TaskHandler)
+    	(r"/cancel/",CancelTaskHandler)
+    	(r"/scan/",ScanHandler),
+    	(r"/browse/",BrowseHandler) ],
+    settings = {
+    	"template_path": os.path.join(os.path.dirname(__file__), ”templates”),
+    	"static_path":os.path.join(os.path.dirname(__file__), ”static”) }
+)
+
+if __name__ == "__main__":
+    application.listen(80)
+    tornado.ioloop.IOLoop.instance().start()
