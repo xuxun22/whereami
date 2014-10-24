@@ -11,12 +11,15 @@ from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 from time import sleep
 from random import random,randint
 from selenium.webdriver.common.action_chains import ActionChains
+from tornado.options import define, options
 
 if sys.getdefaultencoding != 'utf-8': 
 	reload(sys) 
 	sys.setdefaultencoding('utf-8')
 
-PreferredBrowser = "PhantomJS"
+define("port", default="8080", help="Server Port")
+
+PreferredBrowser = u"PhantomJS"
 maxPages = 5
 TaskQueue = []
 
@@ -26,7 +29,7 @@ def scrollWindow(to='bottom',steps=5):
 	if to == 'bottom':
 		for x in xrange(1,steps+1):
 			# js = "window.scrollTo(0, (( document.body.scrollHeight - document.body.clientHeight ) / %d ) * %d); " % (steps, x)
-			js = "window.scrollTo(0, (( document.body.scrollHeight) / %d ) * %d); " % (steps, x)
+			js = u"window.scrollTo(0, (( document.body.scrollHeight) / %d ) * %d); " % (steps, x)
 			print "#%d times scroll:%s" % (x,js)
 			browser.execute_script(js)
 			sleep (randint(1,3))
@@ -135,9 +138,9 @@ class BrowserTask(object):
 
 	taskStatus = {
 		1: u'信息填充,等待扫描',
-		2: u'扫描完成，等待目标确认'，
-		3：u'目标确认，等待浏览'，
-		4：u'浏览完成，等待付款(已结束)',
+		2: u'扫描完成，等待目标确认',
+		3: u'目标确认，等待浏览',
+		4: u'浏览完成，等待付款(已结束)',
 		5: u'任务取消'
 	}
 
@@ -145,7 +148,7 @@ class BrowserTask(object):
 		self.scan_info = {}
 		self.scan_info['keyword'] = keyword
 		self.scan_info['shopname'] = shopname
-		for k,v = kwargs.item():
+		for k,v in kwargs.items():
 			self.scan_info[k] = v
 
 		if not browser:
@@ -250,7 +253,7 @@ class BrowserTask(object):
 					sleep(1)
 
 			nextBtn = None
-			for selector in ('li.next a','a[title="下一页"]'):
+			for selector in ('li.next a', u'a[title="下一页"]'):
 				print "Trying to locate nextBtn with: %s!" % selector
 				nextBtns = browser.find_elements_by_css_selector(selector)
 				if len(nextBtns) != 0:
@@ -322,27 +325,22 @@ class BrowserTask(object):
 		self.status = 5
 
 class MainHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.render('index.html')
+	def get(self):
+		self.render('index.html')
 
 
 class TaskHandler(tornado.web.RequestHandler):
-    def get(self):
-    	''' get task infromation'''
-    	pass
+	def get(self):
+		''' get task infromation'''
+		pass
 
-application = tornado.web.Application(
-	handlers = [
-    	(r"/", MainHandler),
-    	(r"/tasks/",TaskHandler)
-    	(r"/cancel/",CancelTaskHandler)
-    	(r"/scan/",ScanHandler),
-    	(r"/browse/",BrowseHandler) ],
-    settings = {
-    	"template_path": os.path.join(os.path.dirname(__file__), ”templates”),
-    	"static_path":os.path.join(os.path.dirname(__file__), ”static”) }
-)
+application = tornado.web.Application([(r"/", MainHandler),
+		(r"/tasks/",TaskHandler) ],
+		template_path =  os.path.join(os.path.dirname(__file__), "templates"),
+		static_path = os.path.join(os.path.dirname(__file__), "static") 
+	)
 
 if __name__ == "__main__":
-    application.listen(80)
-    tornado.ioloop.IOLoop.instance().start()
+	tornado.options.parse_command_line()
+	application.listen(options.port)
+	tornado.ioloop.IOLoop.instance().start()
