@@ -1,24 +1,24 @@
 # -*- coding:utf-8 -*-
-
-from time import sleep
 import selenium 
+import selenium.common.exceptions
+import tornado.ioloop
+import tornado.web
+import os.path
+import sys     
+
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
-import selenium.common.exceptions
 from time import sleep
 from random import random,randint
 from selenium.webdriver.common.action_chains import ActionChains
 
-import sys     
 if sys.getdefaultencoding != 'utf-8': 
 	reload(sys) 
 	sys.setdefaultencoding('utf-8')
 
-keyWord = u'取暖器'
-itemPrice = u'138.00'
-shopName = u'英蓝电器'
-maxPages = 3
-usedBrowser = u'PhantomJS'
+PreferredBrowser = "PhantomJS"
+maxPages = 5
+TaskQueue = []
 
 def scrollWindow(to='bottom',steps=5):
 	print "scrolling!" 
@@ -130,142 +130,219 @@ class BuyItem:
 
 		return True
 
-print "Started!"
+class BrowserTask(object):
+	"""Automated task within Browser"""
 
-if usedBrowser == u'Firefox':
-	firefoxProfile =  FirefoxProfile()    
-	firefoxProfile.set_preference("browser.privatebrowsing.autostart", True)
-	browser = selenium.webdriver.Firefox(firefoxProfile)
-	browser.maximize_window()
-elif usedBrowser == u'Ie':
-	browser = selenium.webdriver.Ie()
-elif usedBrowser == u'Chrome':
-	#browser = selenium.webdriver.Chrome(chrome_options = '--start-maximized')
-	browser = selenium.webdriver.Chrome()
-elif usedBrowser == u'PhantomJS':
-	browser = selenium.webdriver.PhantomJS()
-	
-browser.implicitly_wait(1)
-browser.set_page_load_timeout(30)
+	taskStatus = {
+		1: u'信息填充,等待扫描',
+		2: u'扫描完成，等待目标确认'，
+		3：u'目标确认，等待浏览'，
+		4：u'浏览完成，等待付款(已结束)',
+		5: u'任务取消'
+	}
 
-try:
-	browser.get('http://www.taobao.com')
-except selenium.common.exceptions.TimeoutException as e:
-	print "Exception: ",e
-	browser.quit()
+	def __init__(self, keyword, shopname, browser = None, login = None, password = None, **kwargs):
+		self.scan_info = {}
+		self.scan_info['keyword'] = keyword
+		self.scan_info['shopname'] = shopname
+		for k,v = kwargs.item():
+			self.scan_info[k] = v
 
-currentLocation = browser.current_url
-while(True):
-	queries = browser.find_elements_by_css_selector("#q")
-	if len(queries) == 0:
-		sleep(1)
-	else:
-		query = queries[0]
-		query.send_keys(keyWord + Keys.RETURN)
-		break
+		if not browser:
+			self.browser = PreferredBrowser
 
-# import pdb;pdb.set_trace()
+		self.login = { "username": login, "password": password }
+		self.driver = None #lazy init
+		self.isLogged = False #lazy init
+		self.status = 1
 
-while(True):
-	if browser.current_url == currentLocation:
-		print "Loading in progress..."
-		sleep(1)
-	else:
-		currentLocation = browser.current_url
-		break
+	def login(self):
+		if not self.driver:
+			# self.driver = getattr(webdriver,self.browser)()
+			usedBrowser = self.browser
 
-itemsFound = { }
-itemsToBrowse = { }
-count = 1
-while(True):
-# 	js_scroll = '''
-# 	// body...
-# 	document.body.scrollTop=0;
-# 	// alert("clientHeight is :" + document.body.clientHeight + ", scrollHeight is :" + document.body.scrollHeight);
-# 	count = document.body.scrollHeight / 100;
-# 	for (var i=0; i <= count; i++)
-# 	{
-# 		document.body.scrollTop = 100 * i
-# 		//sleep(1000)
-# 	}
-# '''
-# 	browser.execute_script(js_scroll)
+			if usedBrowser == u'Firefox':
+				firefoxProfile =  FirefoxProfile()    
+				firefoxProfile.set_preference("self.driver.privatebrowsing.autostart", True)
+				self.driver = selenium.webdriver.Firefox(firefoxProfile)
+				self.driver.maximize_window()
+			elif usedBrowser == u'Ie':
+				self.driver = selenium.webdriver.Ie()
+			elif usedBrowser == u'Chrome':
+				#self.driver = selenium.webdriver.Chrome(chrome_options = '--start-maximized')
+				self.driver = selenium.webdriver.Chrome()
+			elif usedBrowser == u'PhantomJS':
+				self.driver = selenium.webdriver.PhantomJS()
+				
+			self.driver.implicitly_wait(1)
+			self.driver.set_page_load_timeout(30)
 
+			self.driver.maximize_window()
 
-	# sorts = browser.find_elements_by_partial_link_text(u'综合排序')
-	# if len(sorts) == 0:
-	# 	print "Search failed!!!"
-	# 	browser.quit()
+			try:
+				self.driver.get('http://www.taobao.com')
+			except selenium.common.exceptions.TimeoutException as e:
+				print "Exception: ",e
+				self.driver.quit()
 
-	scrollWindow()
-	rightPage = 0
-	while(not rightPage):
-		page = None
-		for selector in ("span.page-cur","li.active span.num"):
-			pages = browser.find_elements_by_css_selector(selector)
-			if len(pages) == 1:
-				page = pages[0].text
+		if not self.isLogged:
+			if self.login['username'] and self.login['password']:
+				login = self.driver.find_element_by_css_selector('a.h')
+				login.click()
+				username = self.driver.find_element_by_css_selector('input[type="text"]')
+				username.send_keys(self.login['username'])
+				safeLogin = self.driver.find_element_by_css_selector('input[type="checkbox"]')
+				import pdb;pdb.set_trace()
+				if safeLogin.get_attribute('checked'):
+					safeLogin.click()
+
+				password = self.driver.find_element_by_css_selector('input[type="password"]')
+				password.send_keys(self.login['password'])
+
+				submit = driver.find_element_by_css_selector('button[type="submit"]')
+				submit.click()
+				driver.find_element_by_css_selector('li.tmsg') #confirm login
+
+		self.isLogged = True
+
+	def scan(self):
+		if not self.isLogged:
+			self.login()
+
+		self.itemsFound = {}
+		self.itemsToBrowse = {}
+
+		currentLocation = self.driver.current_url
+		while(True):
+			queries = self.driver.find_elements_by_css_selector("#q")
+			if len(queries) == 0:
+				sleep(1)
+			else:
+				query = queries[0]
+				query.send_keys(keyWord + Keys.RETURN)
 				break
-		#import pdb;pdb.set_trace(find_element_by_partial_link_text)
-		if page and int(page) == count:
-			rightPage = 1	
-		else:
-			print "waiting for loading to complete..."
-			sleep(1)
 
-	nextBtn = None
-	for selector in ('li.next a','a[title="下一页"]'):
-		print "Trying to locate nextBtn with: %s!" % selector
-		nextBtns = browser.find_elements_by_css_selector(selector)
-		if len(nextBtns) != 0:
-			nextBtn = nextBtns[0]
-			print "nextBtn is :%s" % nextBtn.get_attribute('href')
-			break
+		while(True):
+			if self.driver.current_url == currentLocation:
+				print "Loading in progress..."
+				sleep(1)
+			else:
+				currentLocation = self.driver.current_url
+				break
 
-	if not nextBtn:
-		print "Didn't find nextBtn!!!"
-		browser.quit()
-
-	browser.save_screenshot("snapshot_%d.png" % count)
-
-	cnt = 1
-	for selector in ('div.tb-content div.item', 'div.m-itemlist div.item'):
-		itemElements = browser.find_elements_by_css_selector(selector)
-		if len(itemElements) != 0:
-			print "Trying to browse %d items..." % len(itemElements)
-			# itemElements = []
-			for itemElement in itemElements:
-				print "item #%d " % cnt
-				cnt = cnt + 1
-				item = BuyItem(itemElement)
-				#import pdb;pdb.set_trace()
-				#print "price: %s, shop_name: %s" % (item.price,item.shop_name)
-				print item
-
-				if item.match(price = itemPrice, shop_name = shopName):
-					itemsFound[item.id] = 
+		browser = self.driver
+		count = 1
+		while(True):
+			scrollWindow()
+			rightPage = 0
+			while(not rightPage):
+				page = None
+				for selector in ("span.page-cur","li.active span.num"):
+					pages = browser.find_elements_by_css_selector(selector)
+					if len(pages) == 1:
+						page = pages[0].text
+						break
+				#import pdb;pdb.set_trace(find_element_by_partial_link_text)
+				if page and int(page) == count:
+					rightPage = 1	
 				else:
-					itemsToBrowse.append(itemElement)
-			break
+					print "waiting for loading to complete..."
+					sleep(1)
 
-	if count >= maxPages:
-		break
+			nextBtn = None
+			for selector in ('li.next a','a[title="下一页"]'):
+				print "Trying to locate nextBtn with: %s!" % selector
+				nextBtns = browser.find_elements_by_css_selector(selector)
+				if len(nextBtns) != 0:
+					nextBtn = nextBtns[0]
+					print "nextBtn is :%s" % nextBtn.get_attribute('href')
+					break
 
-	print "Current selectors: ", BuyItem.selectors
+			if not nextBtn:
+				print "Didn't find nextBtn!!!"
+				browser.quit()
 
-	count = count + 1
-	print "Trying next page : %d" % count
-	# nextBtn.click()
-	ac = ActionChains(browser)
-	ac.click_and_hold(nextBtn).perform()
-	ac.release(nextBtn).perform()
-	while (True):
-		if currentLocation == browser.current_url:
-			print "Loading in progress..."
-			sleep(1)
-		else:
-			currentLocation = browser.current_url
-			break
+			# browser.save_screenshot("snapshot_%d.png" % count)
+			self.itemsToBrowse[count] = []
 
-print "Items found : %d" % len(itemsFound)
-print "Bye!"
+			cnt = 1
+			for selector in ('div.tb-content div.item', 'div.m-itemlist div.item'):
+				itemElements = browser.find_elements_by_css_selector(selector)
+				if len(itemElements) != 0:
+					print "Trying to browse %d items..." % len(itemElements)
+					# itemElements = []
+					for itemElement in itemElements:
+						print "item #%d " % cnt
+						cnt = cnt + 1
+						item = BuyItem(itemElement)
+						#import pdb;pdb.set_trace()
+						#print "price: %s, shop_name: %s" % (item.price,item.shop_name)
+						print item
+
+						if item.match(price = itemPrice, shop_name = shopName):
+							itemsFound[item.id] = (item, count)
+						else:
+							self.itemsToBrowse[count].append(itemElement)
+					break
+
+			if count >= maxPages:
+				break
+
+			print "Current selectors: ", BuyItem.selectors
+
+			count = count + 1
+			print "Trying next page : %d" % count
+			# nextBtn.click()
+			ac = ActionChains(browser)
+			ac.click_and_hold(nextBtn).perform()
+			ac.release(nextBtn).perform()
+			while (True):
+				if currentLocation == browser.current_url:
+					print "Loading in progress..."
+					sleep(1)
+				else:
+					currentLocation = browser.current_url
+					break
+
+				while(True):
+					if self.driver.current_url == current_url:
+						sleep(1)
+					else:
+						break
+
+			self.status = 2
+
+	def identify(self,id):
+		self.status = 3
+
+	def browse(self):
+		self.status = 4
+
+	def cancel(self):
+		self.status = 5
+
+class MainHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.render('index.html')
+
+
+class TaskHandler(tornado.web.RequestHandler):
+    def get(self):
+    	''' get task infromation'''
+    	pass
+
+application = tornado.web.Application(
+	handlers = [
+    	(r"/", MainHandler),
+    	(r"/tasks/",TaskHandler)
+    	(r"/cancel/",CancelTaskHandler)
+    	(r"/scan/",ScanHandler),
+    	(r"/browse/",BrowseHandler) ],
+    settings = {
+    	"template_path": os.path.join(os.path.dirname(__file__), ”templates”),
+    	"static_path":os.path.join(os.path.dirname(__file__), ”static”) }
+)
+
+if __name__ == "__main__":
+    application.listen(80)
+    tornado.ioloop.IOLoop.instance().start()
